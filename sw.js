@@ -1,6 +1,6 @@
 // Guarda una copia de la app en el teléfono para que abra sin internet.
 // Los gastos NO pasan por aquí: viven en el almacenamiento local del teléfono.
-const CACHE = 'gastos-v2';
+const CACHE = 'gastos-v3';
 const FILES = [
   './',
   './index.html',

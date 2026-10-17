@@ -156,6 +156,10 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .seg{display:flex;gap:6px}
 .seg button{flex:1;border:2px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 4px;font-size:14px;font-weight:600}
 .seg button.on{border-color:var(--cc);color:var(--cc)}
+.field label.opt{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--line);border-radius:10px;margin-bottom:6px;background:var(--bg);font-size:15px;color:var(--ink);line-height:1.3}
+.opt input{width:20px;height:20px;margin:0;flex:none;accent-color:var(--accent)}
+.opt .dot{margin-right:0}
+.opt .r{margin-left:auto;font-size:14px}
 .sheet .actions{margin-top:18px}
 
 .toast{
@@ -224,6 +228,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   </form>
 </dialog>
 
+<dialog id="dlg-pdf"><form class="sheet" id="f-pdf" autocomplete="off"></form></dialog>
 <dialog id="dlg-setup"><form class="sheet" id="f-setup" autocomplete="off"></form></dialog>
 
 <input type="file" id="import-file" accept=".json,application/json" class="hidden">
@@ -583,7 +588,7 @@ document.addEventListener('click', e => {
   const a = e.target.closest('button[data-act]');
   if (!a) return;
   const act = a.dataset.act;
-  if (act === 'pdf') return generarPDF();
+  if (act === 'pdf') return abrirPDF();
   if (act === 'respaldo') return exportarRespaldo();
   if (act === 'importar') return $('#import-file').click();
 
@@ -658,109 +663,195 @@ $('#import-file').addEventListener('change', e => {
   r.readAsText(file);
 });
 
-/* ---------- Resumen PDF ---------- */
-function generarPDF() {
+/* ---------- Resumen PDF: opciones ---------- */
+const KEY_PDF = 'misgastos.pdf.v1';
+function opcionesPDF() {
+  let o = {};
+  try { o = JSON.parse(localStorage.getItem(KEY_PDF)) || {}; } catch (e) {}
+  const ids = db.cats.map(c => c.id);
+  const cats = Array.isArray(o.cats) ? o.cats.filter(id => ids.includes(id)) : [];
+  return { cats: cats.length ? cats : ids, cons: o.cons !== false, det: o.det !== false };
+}
+
+function abrirPDF() {
+  if (!gastosDelMes().length) { toast('No hay gastos en ' + MESES[mes]); return; }
+  const o = opcionesPDF();
+  const t = totales(gastosDelMes());
+  $('#f-pdf').innerHTML = `
+    <div class="sheet-h"><h3>Resumen de ${MESES[mes]}</h3>
+      <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">×</button></div>
+    <div class="field"><label>Categorías que incluye</label>
+      ${db.cats.map(c => `<label class="opt"><input type="checkbox" name="cat" value="${c.id}" ${o.cats.includes(c.id) ? 'checked' : ''}>
+        <span class="dot" style="background:${color(c.id)}"></span>${esc(c.nombre)}
+        <span class="r num muted">${q(t.cats[c.id].total)}</span></label>`).join('')}
+    </div>
+    <div class="field"><label>Contenido</label>
+      <label class="opt"><input type="checkbox" name="cons" ${o.cons ? 'checked' : ''}>
+        <span>Consolidado<br><span class="muted" style="font-size:13px">Totales por categoría y subcategoría</span></span></label>
+      <label class="opt"><input type="checkbox" name="det" ${o.det ? 'checked' : ''}>
+        <span>Detalle de gastos<br><span class="muted" style="font-size:13px">Cada gasto con fecha y nota, separado por categoría</span></span></label>
+    </div>
+    <p class="p" style="margin-top:12px">Si eliges una sola categoría, el PDF no muestra nada de las demás.</p>
+    <div class="actions"><button type="submit" class="btn">Generar PDF</button></div>`;
+  $('#dlg-pdf').showModal();
+}
+
+$('#f-pdf').addEventListener('click', e => { if (e.target.closest('[data-cerrar]')) $('#dlg-pdf').close(); });
+$('#dlg-pdf').addEventListener('click', e => { if (e.target === $('#dlg-pdf')) $('#dlg-pdf').close(); });
+$('#f-pdf').addEventListener('submit', e => {
+  e.preventDefault();
+  const f = $('#f-pdf');
+  const o = {
+    cats: [...f.querySelectorAll('input[name=cat]:checked')].map(i => i.value),
+    cons: f.querySelector('input[name=cons]').checked,
+    det: f.querySelector('input[name=det]').checked
+  };
+  if (!o.cats.length) { toast('Elige al menos una categoría'); return; }
+  if (!o.cons && !o.det) { toast('Elige consolidado, detalle o ambos'); return; }
+  const n = gastosDelMes().filter(g => o.cats.includes(g.cat)).length;
+  if (!n) { toast('Esas categorías no tienen gastos en ' + MESES[mes]); return; }
+  try { localStorage.setItem(KEY_PDF, JSON.stringify(o)); } catch (err) {}
+  $('#dlg-pdf').close();
+  generarPDF(o);
+});
+
+/* ---------- Resumen PDF: documento ---------- */
+function generarPDF(o) {
   if (!window.jspdf) { alert('No se pudo cargar el generador de PDF. Abre la app con internet una vez y vuelve a intentarlo.'); return; }
-  const lista = gastosDelMes().sort((a, b) => a.fecha.localeCompare(b.fecha) || a.creado - b.creado);
-  if (!lista.length) { toast('No hay gastos en ' + MESES[mes]); return; }
+  const sel = db.cats.filter(c => o.cats.includes(c.id));
+  const lista = gastosDelMes().filter(g => o.cats.includes(g.cat))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.creado - b.creado);
   const t = totales(lista);
+  const una = sel.length === 1;
+  const todas = sel.length === db.cats.length;
+  const nombres = sel.map(c => c.nombre).join(' y ');
+
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = 612, H = 792, M = 50, R = W - M;
   const gris = [110, 113, 109], tinta = [29, 33, 31], linea = [220, 217, 210];
   let y = M;
 
-  const txt = (s, x, yy, o = {}) => doc.text(String(s), x, yy, o);
+  const txt = (s, x, yy, op = {}) => doc.text(String(s), x, yy, op);
   const font = (estilo, tam, col = tinta) => { doc.setFont('helvetica', estilo); doc.setFontSize(tam); doc.setTextColor(...col); };
   const hr = (yy, col = linea, w = 0.6) => { doc.setDrawColor(...col); doc.setLineWidth(w); doc.line(M, yy, R, yy); };
   const espacio = (n) => { if (y + n > H - 60) { doc.addPage(); y = M; return true; } return false; };
-
-  // Encabezado
-  font('bold', 20); txt('Resumen de gastos', M, y + 8);
-  font('normal', 13, gris); txt(nombreMes(anio, mes), M, y + 28);
-  const hoy = new Date();
-  font('normal', 9, gris);
-  txt('Generado el ' + hoy.getDate() + '/' + (hoy.getMonth() + 1) + '/' + hoy.getFullYear(), R, y + 8, { align: 'right' });
-  y += 48; hr(y, tinta, 1); y += 26;
-
-  // Consolidado
-  font('bold', 12); txt('Consolidado por categoría', M, y); y += 20;
-  font('bold', 9, gris);
-  txt('CATEGORÍA', M, y); txt('GASTOS', 360, y, { align: 'right' }); txt('TOTAL', 480, y, { align: 'right' }); txt('% DEL MES', R, y, { align: 'right' });
-  y += 8; hr(y); y += 18;
-  db.cats.forEach(c => {
-    const tc = t.cats[c.id];
-    doc.setFillColor(...CAT_PDF[idx(c.id)]); doc.rect(M, y - 8, 8, 8, 'F');
-    font('normal', 11);
-    txt(c.nombre, M + 16, y); txt(tc.n, 360, y, { align: 'right' }); txt(q(tc.total), 480, y, { align: 'right' });
-    txt(pct(tc.total, t.total).toFixed(1) + '%', R, y, { align: 'right' });
-    y += 10; hr(y); y += 18;
-  });
-  font('bold', 12);
-  txt('Total del mes', M, y); txt(t.n, 360, y, { align: 'right' }); txt(q(t.total), 480, y, { align: 'right' }); txt('100%', R, y, { align: 'right' });
-  y += 8; hr(y, tinta, 1); y += 36;
-
-  // Desglose por subcategoría
-  font('bold', 12); txt('Desglose por subcategoría', M, y); y += 22;
-  db.cats.forEach(c => {
-    const tc = t.cats[c.id];
-    const filas = Object.entries(tc.subs).sort((a, b) => b[1].total - a[1].total);
-    espacio(40 + filas.length * 20);
-    doc.setFillColor(...CAT_PDF[idx(c.id)]); doc.rect(M, y - 10, 4, 14, 'F');
-    font('bold', 11); txt(c.nombre, M + 12, y); txt(q(tc.total), R, y, { align: 'right' });
-    y += 8; hr(y); y += 16;
-    if (!filas.length) { font('normal', 10, gris); txt('Sin gastos este mes', M + 12, y); y += 22; return; }
-    filas.forEach(([sid, s]) => {
-      espacio(20);
-      font('normal', 10);
-      txt(subNombre(c, sid), M + 12, y);
-      font('normal', 10, gris); txt(s.n + (s.n === 1 ? ' gasto' : ' gastos'), 360, y, { align: 'right' });
-      font('normal', 10); txt(q(s.total), 480, y, { align: 'right' });
-      font('normal', 10, gris); txt(pct(s.total, tc.total).toFixed(1) + '%', R, y, { align: 'right' });
-      y += 17;
-    });
-    y += 14;
-  });
-
-  // Detalle
-  doc.addPage(); y = M;
-  font('bold', 12); txt('Detalle de gastos', M, y); y += 20;
-  const cols = { fecha: M, cat: M + 58, sub: M + 140, nota: M + 260 };
-  const encabezado = () => {
-    font('bold', 8, gris);
-    txt('FECHA', cols.fecha, y); txt('CATEGORÍA', cols.cat, y); txt('SUBCATEGORÍA', cols.sub, y); txt('NOTA', cols.nota, y); txt('MONTO', R, y, { align: 'right' });
-    y += 7; hr(y); y += 14;
-  };
+  const marca = (c, yy) => { doc.setFillColor(...CAT_PDF[idx(c.id)]); doc.rect(M, yy - 10, 4, 14, 'F'); };
   const corta = (s, w) => {
     if (doc.getTextWidth(s) <= w) return s;
     while (s.length && doc.getTextWidth(s + '...') > w) s = s.slice(0, -1);
     return s + '...';
   };
-  encabezado();
-  lista.forEach(g => {
-    if (espacio(16)) encabezado();
-    const c = cat(g.cat);
-    font('normal', 9);
-    txt(g.fecha.slice(8, 10) + '/' + g.fecha.slice(5, 7), cols.fecha, y);
-    txt(corta(c.nombre, 76), cols.cat, y);
-    txt(corta(subNombre(c, g.sub), 114), cols.sub, y);
-    font('normal', 9, gris); txt(corta(g.nota || '', 160), cols.nota, y);
-    font('normal', 9); txt(q(g.montoC), R, y, { align: 'right' });
-    y += 15;
-  });
-  y += 2; hr(y, tinta, 1); y += 15;
-  font('bold', 10); txt('Total', cols.fecha, y); txt(q(t.total), R, y, { align: 'right' });
+
+  // Encabezado
+  font('bold', 20); txt(una ? 'Gastos ' + sel[0].nombre : 'Resumen de gastos', M, y + 8);
+  font('normal', 13, gris); txt(nombreMes(anio, mes) + (!una && !todas ? ' · ' + nombres : ''), M, y + 28);
+  const hoy = new Date();
+  font('normal', 9, gris);
+  txt('Generado el ' + hoy.getDate() + '/' + (hoy.getMonth() + 1) + '/' + hoy.getFullYear(), R, y + 8, { align: 'right' });
+  y += 48; hr(y, tinta, 1); y += 26;
+
+  if (o.cons) {
+    // Consolidado por categoría (solo tiene sentido con más de una)
+    if (!una) {
+      font('bold', 12); txt('Consolidado por categoría', M, y); y += 20;
+      font('bold', 9, gris);
+      txt('CATEGORÍA', M, y); txt('GASTOS', 360, y, { align: 'right' }); txt('TOTAL', 480, y, { align: 'right' });
+      txt(todas ? '% DEL MES' : '% DEL TOTAL', R, y, { align: 'right' });
+      y += 8; hr(y); y += 18;
+      sel.forEach(c => {
+        const tc = t.cats[c.id];
+        doc.setFillColor(...CAT_PDF[idx(c.id)]); doc.rect(M, y - 8, 8, 8, 'F');
+        font('normal', 11);
+        txt(c.nombre, M + 16, y); txt(tc.n, 360, y, { align: 'right' }); txt(q(tc.total), 480, y, { align: 'right' });
+        txt(pct(tc.total, t.total).toFixed(1) + '%', R, y, { align: 'right' });
+        y += 10; hr(y); y += 18;
+      });
+      font('bold', 12);
+      txt(todas ? 'Total del mes' : 'Total', M, y); txt(t.n, 360, y, { align: 'right' }); txt(q(t.total), 480, y, { align: 'right' }); txt('100%', R, y, { align: 'right' });
+      y += 8; hr(y, tinta, 1); y += 36;
+    }
+
+    // Desglose por subcategoría
+    font('bold', 12); txt('Desglose por subcategoría', M, y); y += 22;
+    sel.forEach(c => {
+      const tc = t.cats[c.id];
+      const filas = Object.entries(tc.subs).sort((a, b) => b[1].total - a[1].total);
+      espacio(40 + filas.length * 20);
+      marca(c, y);
+      font('bold', 11); txt(c.nombre, M + 12, y);
+      font('normal', 9, gris); txt(tc.n + (tc.n === 1 ? ' gasto' : ' gastos'), 360, y, { align: 'right' });
+      font('bold', 11); txt(q(tc.total), R, y, { align: 'right' });
+      y += 8; hr(y); y += 16;
+      if (!filas.length) { font('normal', 10, gris); txt('Sin gastos este mes', M + 12, y); y += 22; return; }
+      filas.forEach(([sid, s]) => {
+        espacio(20);
+        font('normal', 10);
+        txt(subNombre(c, sid), M + 12, y);
+        font('normal', 10, gris); txt(s.n + (s.n === 1 ? ' gasto' : ' gastos'), 360, y, { align: 'right' });
+        font('normal', 10); txt(q(s.total), 480, y, { align: 'right' });
+        font('normal', 10, gris); txt(pct(s.total, tc.total).toFixed(1) + '%', R, y, { align: 'right' });
+        y += 17;
+      });
+      y += 14;
+    });
+  }
+
+  if (o.det) {
+    // Detalle, una sección por categoría
+    if (o.cons) { y += 10; espacio(110); }
+    font('bold', 12); txt('Detalle de gastos', M, y); y += 24;
+    const cols = { fecha: M + 12, sub: M + 62, nota: M + 190 };
+    const encabezado = () => {
+      font('bold', 8, gris);
+      txt('FECHA', cols.fecha, y); txt('SUBCATEGORÍA', cols.sub, y); txt('NOTA', cols.nota, y); txt('MONTO', R, y, { align: 'right' });
+      y += 7; hr(y); y += 14;
+    };
+    const titulo = (c, cont) => {
+      marca(c, y);
+      font('bold', 11); txt(c.nombre + (cont ? ' (continuación)' : ''), M + 12, y); y += 18;
+      encabezado();
+    };
+    sel.forEach(c => {
+      const gs = lista.filter(g => g.cat === c.id);
+      espacio(80);
+      titulo(c, false);
+      if (!gs.length) { font('normal', 10, gris); txt('Sin gastos este mes', cols.fecha, y); y += 28; return; }
+      gs.forEach(g => {
+        if (espacio(16)) titulo(c, true);
+        font('normal', 9);
+        txt(g.fecha.slice(8, 10) + '/' + g.fecha.slice(5, 7), cols.fecha, y);
+        txt(corta(subNombre(c, g.sub), 120), cols.sub, y);
+        font('normal', 9, gris); txt(corta(g.nota || '', R - 80 - cols.nota), cols.nota, y);
+        font('normal', 9); txt(q(g.montoC), R, y, { align: 'right' });
+        y += 15;
+      });
+      espacio(24);
+      y += 1; hr(y, tinta, 0.8); y += 14;
+      font('bold', 10); txt('Total ' + c.nombre, cols.fecha, y); txt(q(t.cats[c.id].total), R, y, { align: 'right' });
+      y += 32;
+    });
+    if (!una && !o.cons) {
+      espacio(30);
+      hr(y - 12, tinta, 1);
+      font('bold', 12); txt(todas ? 'Total del mes' : 'Total', M, y + 4); txt(q(t.total), R, y + 4, { align: 'right' });
+    }
+  }
 
   // Pie de página
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
     doc.setPage(i);
     font('normal', 8, gris);
-    txt('Resumen de gastos · ' + nombreMes(anio, mes), M, H - 30);
+    txt('Resumen de gastos · ' + nombreMes(anio, mes) + (todas ? '' : ' · ' + nombres), M, H - 30);
     txt('Página ' + i + ' de ' + n, R, H - 30, { align: 'right' });
   }
 
-  entregarArchivo(doc.output('blob'), 'Gastos-' + claveMes(anio, mes) + '.pdf');
+  const slug = (x) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '');
+  const nombre = 'Gastos-' + claveMes(anio, mes) +
+    (todas ? '' : '-' + sel.map(c => slug(c.nombre)).join('-')) +
+    (o.cons && o.det ? '' : o.cons ? '-consolidado' : '-detalle') + '.pdf';
+  entregarArchivo(doc.output('blob'), nombre);
 }
 
 /* ---------- Primera vez: nombrar categorías ---------- */

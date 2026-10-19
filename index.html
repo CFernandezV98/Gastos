@@ -16,14 +16,14 @@
 :root{
   --bg:#f4f2ee; --card:#ffffff; --ink:#1d211f; --muted:#6c716d; --line:#e4e1da;
   --soft:#efece6; --accent:#1f2a24; --accent-ink:#ffffff; --danger:#c0392b;
-  --c1:#3d6fd6; --c2:#0f9a76; --c3:#b5682b; --pos:#23854f;
+  --c1:#3d6fd6; --c2:#8a4fc7; --c3:#b5682b; --pos:#23854f;
   --radius:16px;
 }
 @media (prefers-color-scheme: dark){
   :root{
     --bg:#151816; --card:#1f2320; --ink:#ecebe7; --muted:#9a9f9b; --line:#2f3430;
     --soft:#272c28; --accent:#e9e6de; --accent-ink:#151816; --danger:#ef6b5b;
-    --c1:#6b93ea; --c2:#33c09a; --c3:#d98a4b; --pos:#5fc48b;
+    --c1:#6b93ea; --c2:#b48ae8; --c3:#d98a4b; --pos:#5fc48b;
   }
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -263,7 +263,7 @@ const KEY = 'misgastos.datos.v1';
 const KEY_LAST = 'misgastos.ultimo.v1';
 // Los colores van por posición (1.ª, 2.ª y 3.ª categoría), no por nombre.
 const CAT_VAR = ['--c1', '--c2', '--c3'];
-const CAT_PDF = [[61,111,214], [15,154,118], [181,104,43]];
+const CAT_PDF = [[61,111,214], [138,79,199], [181,104,43]];
 const idx = (catId) => Math.max(0, db.cats.findIndex(c => c.id === catId));
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }

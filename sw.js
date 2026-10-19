@@ -1,6 +1,6 @@
 // Guarda una copia de la app en el teléfono para que abra sin internet.
 // Los gastos NO pasan por aquí: viven en el almacenamiento local del teléfono.
-const CACHE = 'gastos-v5';
+const CACHE = 'gastos-v7';
 const FILES = [
   './',
   './index.html',
@@ -36,9 +36,16 @@ self.addEventListener('fetch', (e) => {
         if (res.ok) {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(req, copy));
+          return res;
         }
-        return res;
+        // Si GitHub responde con error (por ejemplo 404 durante una falla), usa la copia guardada.
+        return guardada(req).then((r) => r || res);
       })
-      .catch(() => caches.match(req).then((r) => r || caches.match('./index.html')))
+      .catch(() => guardada(req))
   );
 });
+
+function guardada(req) {
+  return caches.match(req, { ignoreSearch: true }).then((r) =>
+    r || (req.mode === 'navigate' ? caches.match('./index.html') : undefined));
+}

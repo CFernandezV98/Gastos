@@ -4,14 +4,14 @@ Aplicación para llevar gastos personales desde el iPhone. Funciona sin servidor
 
 ## Funciones
 
-- Tres categorías principales con subcategorías. Los nombres de las categorías se definen la primera vez que se abre la app y se pueden cambiar en Ajustes.
+- Categorías principales de gastos y de ingresos, cada una con sus subcategorías y su color. Se pueden agregar, editar y quitar en Ajustes; al quitar una categoría con movimientos, estos pasan a la categoría que se elija.
 - Registro de gastos con monto en quetzales, fecha, categoría, subcategoría y nota opcional.
-- Registro de ingresos con su propia lista de fuentes (por ejemplo, Salario o Ventas).
+- Registro de ingresos con sus propias categorías y subcategorías.
 - Balance mensual: saldo inicial del mes, ingresos, gastos y saldo final. El saldo final de cada mes pasa como saldo inicial del siguiente.
 - Cuadre con el saldo real: se anota cuánto dinero hay en bancos y efectivo, y la app muestra la diferencia con lo registrado.
 - Resumen mensual con el total del mes, la comparación con el mes anterior, el reparto entre categorías, el desglose por subcategoría y una gráfica de gasto por día.
 - Lista de movimientos del mes agrupada por día, con filtro por categoría. Cada gasto se puede editar o eliminar.
-- Reporte PDF del mes. Se elige qué categorías incluir y si lleva el consolidado, el detalle, los ingresos y el balance. Cuando se elige una sola categoría, el PDF no muestra información de las demás; por eso los ingresos y el balance solo se incluyen cuando el reporte tiene las tres categorías.
+- Reporte PDF del mes. Se elige qué categorías incluir y si lleva el consolidado, el detalle, los ingresos y el balance. Cuando se elige una sola categoría, el PDF no muestra información de las demás; por eso los ingresos y el balance solo se incluyen cuando el reporte tiene todas las categorías de gastos.
 - Copia de seguridad para exportar y restaurar todos los datos.
 
 ## Privacidad
@@ -24,7 +24,7 @@ Aplicación para llevar gastos personales desde el iPhone. Funciona sin servidor
 
 1. Abre la dirección de la app en **Safari**.
 2. Toca **Compartir** y luego **Agregar a pantalla de inicio**. Si aparece la opción **Abrir como app web**, déjala activada.
-3. Abre la app desde el ícono. La primera vez pide los nombres de las tres categorías.
+3. Abre la app desde el ícono. La primera vez pide los nombres de las categorías de gastos.
 
 Usa siempre el ícono de la pantalla de inicio. Los datos que se registran en Safari se guardan por separado de los del ícono.
 

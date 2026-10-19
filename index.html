@@ -16,14 +16,14 @@
 :root{
   --bg:#f4f2ee; --card:#ffffff; --ink:#1d211f; --muted:#6c716d; --line:#e4e1da;
   --soft:#efece6; --accent:#1f2a24; --accent-ink:#ffffff; --danger:#c0392b;
-  --c1:#3d6fd6; --c2:#0f9a76; --c3:#b5682b;
+  --c1:#3d6fd6; --c2:#0f9a76; --c3:#b5682b; --pos:#23854f;
   --radius:16px;
 }
 @media (prefers-color-scheme: dark){
   :root{
     --bg:#151816; --card:#1f2320; --ink:#ecebe7; --muted:#9a9f9b; --line:#2f3430;
     --soft:#272c28; --accent:#e9e6de; --accent-ink:#151816; --danger:#ef6b5b;
-    --c1:#6b93ea; --c2:#33c09a; --c3:#d98a4b;
+    --c1:#6b93ea; --c2:#33c09a; --c3:#d98a4b; --pos:#5fc48b;
   }
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -162,6 +162,16 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .opt .r{margin-left:auto;font-size:14px}
 .sheet .actions{margin-top:18px}
 
+.pos{color:var(--pos)}
+.neg{color:var(--danger)}
+.ledger{margin-top:14px}
+.ledger>div{display:flex;justify-content:space-between;gap:8px;padding:9px 0;border-top:1px solid var(--line);font-size:15px}
+.ledger>div.tot{font-weight:700;border-top:1.5px solid var(--ink)}
+.estado{display:inline-block;font-weight:700;font-size:15px;padding:4px 10px;border-radius:8px;background:var(--soft);margin-top:10px}
+.hist{display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:9px 10px;font-size:13px;margin-top:10px;align-items:baseline}
+.hist .h{color:var(--muted);font-size:12px}
+.hist .r{text-align:right}
+.field label.opt.off{opacity:.45}
 .toast{
   position:fixed;left:50%;bottom:calc(150px + env(safe-area-inset-bottom));transform:translateX(-50%);
   background:var(--accent);color:var(--accent-ink);padding:10px 16px;border-radius:12px;font-size:14px;
@@ -180,6 +190,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 
 <main>
   <section class="view on" id="v-inicio"></section>
+  <section class="view" id="v-balance"></section>
   <section class="view" id="v-movs"></section>
   <section class="view" id="v-ajustes"></section>
 </main>
@@ -189,6 +200,9 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 <nav class="tabs">
   <button data-view="inicio" class="on">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Resumen
+  </button>
+  <button data-view="balance">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M7 21h10M5 7h14M5 7l-3 7a3 3 0 0 0 6 0zM19 7l-3 7a3 3 0 0 0 6 0z"/></svg>Balance
   </button>
   <button data-view="movs">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Movimientos
@@ -204,14 +218,19 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
       <h3 id="dlg-title">Nuevo gasto</h3>
       <button type="button" class="icon-btn" id="dlg-close" aria-label="Cerrar">×</button>
     </div>
+    <div class="seg" id="f-tipo" style="margin-bottom:12px"></div>
     <input id="f-monto" class="amount-in num" inputmode="decimal" placeholder="Q0.00" required>
-    <div class="field">
+    <div class="field" id="f-wrap-cat">
       <label>Categoría</label>
       <div class="seg" id="f-cats"></div>
     </div>
-    <div class="field">
+    <div class="field" id="f-wrap-sub">
       <label for="f-sub">Subcategoría</label>
       <select id="f-sub"></select>
+    </div>
+    <div class="field hidden" id="f-wrap-fuente">
+      <label for="f-fuente">Fuente</label>
+      <select id="f-fuente"></select>
     </div>
     <div class="field">
       <label for="f-fecha">Fecha</label>
@@ -229,6 +248,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 </dialog>
 
 <dialog id="dlg-pdf"><form class="sheet" id="f-pdf" autocomplete="off"></form></dialog>
+<dialog id="dlg-monto"><form class="sheet" id="f-saldo" autocomplete="off"></form></dialog>
 <dialog id="dlg-setup"><form class="sheet" id="f-setup" autocomplete="off"></form></dialog>
 
 <input type="file" id="import-file" accept=".json,application/json" class="hidden">
@@ -250,7 +270,7 @@ function uid() { return Date.now().toString(36) + Math.random().toString(36).sli
 
 function datosIniciales() {
   const s = (n) => ({ id: uid(), nombre: n });
-  return {
+  return normalizar({
     version: 1,
     cats: [
       { id: 'c1', nombre: 'Categoría 1', subs: ['General'].map(s) },
@@ -260,7 +280,17 @@ function datosIniciales() {
     configurado: false,
     gastos: [],
     ultimoRespaldo: null
-  };
+  });
+}
+
+// Completa los campos de ingresos y balance en datos de versiones anteriores.
+function normalizar(d) {
+  if (!Array.isArray(d.ingresos)) d.ingresos = [];
+  if (!Array.isArray(d.fuentes) || !d.fuentes.length)
+    d.fuentes = ['Salario', 'Ventas', 'Otros'].map(n => ({ id: uid(), nombre: n }));
+  if (d.saldoInicial === undefined) d.saldoInicial = null;
+  if (!d.saldosReales || typeof d.saldosReales !== 'object') d.saldosReales = {};
+  return d;
 }
 
 function valido(d) {
@@ -275,7 +305,7 @@ function cargar() {
       const d = JSON.parse(s);
       if (valido(d)) {
         if (d.configurado === undefined) d.configurado = d.cats.some(c => !/^Categoría \d$/.test(c.nombre));
-        return d;
+        return normalizar(d);
       }
     }
   } catch (e) {}
@@ -298,8 +328,9 @@ const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto'
 const DIAS = ['dom','lun','mar','mié','jue','vie','sáb'];
 
 function q(cent) {
-  return 'Q' + (cent / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (cent < 0 ? '-' : '') + 'Q' + (Math.abs(cent) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+function qs(cent) { return (cent > 0 ? '+' : '') + q(cent); }
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
@@ -322,6 +353,16 @@ function leerMonto(txt) {
   if (!/^\d*\.?\d*$/.test(s) || s === '' || s === '.') return null;
   const c = Math.round(parseFloat(s) * 100);
   return c > 0 ? c : null;
+}
+
+// Para saldos: acepta cero y negativos ("-500").
+function leerSaldo(txt) {
+  let s = String(txt).trim().replace(/[Qq\s]/g, '');
+  const neg = s.startsWith('-');
+  s = s.replace(/^-/, '');
+  if (/^0+([.,]0*)?$/.test(s)) return 0;
+  const c = leerMonto(s);
+  return c === null ? null : (neg ? -c : c);
 }
 
 let tToast;
@@ -354,16 +395,58 @@ function totales(lista) {
   return r;
 }
 
+/* ---------- Ingresos y balance ---------- */
+function ingresosDelMes(y = anio, m = mes) {
+  const k = claveMes(y, m);
+  return db.ingresos.filter(i => i.fecha.startsWith(k));
+}
+function fuente(id) { return db.fuentes.find(f => f.id === id); }
+function fuenteNombre(id) { const f = fuente(id); return f ? f.nombre : 'Sin fuente'; }
+function esMesActual() { return anio === ahora.getFullYear() && mes === ahora.getMonth(); }
+const mesDe = (fecha) => fecha.slice(0, 7);
+
+// Mes desde el que se acumula el saldo: el del saldo inicial, o el primer mes con movimientos.
+function mesInicio() {
+  if (db.saldoInicial) return db.saldoInicial.mes;
+  const meses = db.gastos.concat(db.ingresos).map(x => mesDe(x.fecha)).sort();
+  return meses[0] || claveMes(ahora.getFullYear(), ahora.getMonth());
+}
+
+function balance(y = anio, m = mes) {
+  const k = claveMes(y, m), ini = mesInicio();
+  const ing = ingresosDelMes(y, m).reduce((a, i) => a + i.montoC, 0);
+  const gas = gastosDelMes(y, m).reduce((a, g) => a + g.montoC, 0);
+  let apertura = null;
+  if (k >= ini) {
+    apertura = db.saldoInicial ? db.saldoInicial.montoC : 0;
+    db.ingresos.forEach(i => { const mm = mesDe(i.fecha); if (mm >= ini && mm < k) apertura += i.montoC; });
+    db.gastos.forEach(g => { const mm = mesDe(g.fecha); if (mm >= ini && mm < k) apertura -= g.montoC; });
+  }
+  const final = apertura === null ? null : apertura + ing - gas;
+  const r = db.saldosReales[k];
+  const real = r ? r.montoC : null;
+  return { k, ini, apertura, ing, gas, neto: ing - gas, final, real, realFecha: r ? r.fecha : null,
+    dif: real !== null && final !== null ? real - final : null };
+}
+
+function porFuente(lista) {
+  const r = {};
+  lista.forEach(i => { const x = r[i.fuente] || (r[i.fuente] = { total: 0, n: 0 }); x.total += i.montoC; x.n++; });
+  return Object.entries(r).sort((a, b) => b[1].total - a[1].total);
+}
+
+function nombreClave(k) { const [y, m] = k.split('-').map(Number); return MESES[m - 1] + ' ' + y; }
+
 /* ---------- Render ---------- */
 function render() {
   $('#month-title').textContent = nombreMes(anio, mes);
-  const esMesActual = anio === ahora.getFullYear() && mes === ahora.getMonth();
-  $('#next').disabled = esMesActual;
+  $('#next').disabled = esMesActual();
   $('#top').classList.toggle('hidden', vista === 'ajustes');
   $('#fab').classList.toggle('hidden', vista === 'ajustes');
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'v-' + vista));
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === vista));
   if (vista === 'inicio') renderInicio();
+  if (vista === 'balance') renderBalance();
   if (vista === 'movs') renderMovs();
   if (vista === 'ajustes') renderAjustes();
 }
@@ -376,7 +459,7 @@ function renderInicio() {
   let h = '';
 
   // Recordatorio de respaldo
-  if (db.gastos.length) {
+  if (db.gastos.length || db.ingresos.length) {
     const dias = db.ultimoRespaldo ? Math.floor((Date.now() - db.ultimoRespaldo) / 864e5) : null;
     if (dias === null || dias >= 30) {
       h += `<div class="notice">${dias === null ? 'Aún no has hecho una copia de seguridad.' : 'Tu última copia de seguridad tiene ' + dias + ' días.'}
@@ -448,35 +531,140 @@ function renderDias(lista) {
     <div class="sub-line">Promedio diario: <span class="num">${q(Math.round(total / diasTranscurridos))}</span></div></div>`;
 }
 
+function renderBalance() {
+  const b = balance();
+  const t = totales(gastosDelMes());
+  let h = '';
+
+  if (!db.saldoInicial) {
+    h += `<div class="notice">Para que el saldo se acumule bien mes a mes, indica con cuánto dinero empezaste.
+      <button data-act="saldo-ini">Configurar saldo inicial</button></div>`;
+  }
+
+  h += `<div class="card">
+    <p class="label">${esMesActual() ? 'Saldo esperado hoy' : 'Saldo final esperado'}</p>
+    <p class="big num ${b.final !== null && b.final < 0 ? 'neg' : ''}">${b.final === null ? '—' : q(b.final)}</p>
+    <div class="sub-line">Resultado del mes: <span class="num ${b.neto < 0 ? 'neg' : b.neto > 0 ? 'pos' : ''}">${qs(b.neto)}</span></div>
+    <div class="ledger">
+      <div><span>Saldo al 1 de ${MESES[mes]}</span><span class="num">${b.apertura === null ? '—' : q(b.apertura)}</span></div>
+      <div><span>Ingresos</span><span class="num pos">${qs(b.ing)}</span></div>
+      <div><span>Gastos</span><span class="num">${q(-b.gas)}</span></div>
+      <div class="tot"><span>Saldo final</span><span class="num">${b.final === null ? '—' : q(b.final)}</span></div>
+    </div>`;
+  if (b.apertura === null) {
+    h += `<p class="p" style="margin:10px 0 0">El saldo acumulado empieza en ${nombreClave(b.ini)}. Para este mes solo se muestra lo que entró y salió.</p>`;
+  }
+  h += '</div>';
+
+  // Cuadre contra el saldo real
+  if (b.final !== null) {
+    h += '<div class="card"><div class="cat-head"><h2>Cuadre con saldo real</h2></div>';
+    if (b.real === null) {
+      h += `<p class="p" style="margin-top:8px">Anota cuánto dinero tienes en total, sumando bancos y efectivo, ${esMesActual() ? 'hoy' : 'al cierre de ' + MESES[mes]}. La app lo compara con lo registrado.</p>
+        <button class="btn ghost" data-act="saldo-real">Anotar saldo real</button>`;
+    } else {
+      const d = b.dif;
+      const estado = d === 0 ? 'Cuadra' : d < 0 ? 'Faltan ' + q(-d) : 'Sobran ' + q(d);
+      const expl = d === 0 ? 'El saldo real coincide con lo registrado.'
+        : d < 0 ? 'Tienes menos dinero del que indican los registros. Puede haber gastos sin anotar.'
+        : 'Tienes más dinero del que indican los registros. Puede haber ingresos sin anotar.';
+      const fr = b.realFecha ? b.realFecha.slice(8, 10) + '/' + b.realFecha.slice(5, 7) : '';
+      h += `<span class="estado ${d === 0 ? 'pos' : 'neg'}">${estado}</span>
+        <p class="p" style="margin:8px 0 0">${expl}</p>
+        <div class="ledger">
+          <div><span>Saldo real${fr ? ' <span class="muted" style="font-size:13px">(anotado el ' + fr + ')</span>' : ''}</span><span class="num">${q(b.real)}</span></div>
+          <div><span>Saldo según registros</span><span class="num">${q(b.final)}</span></div>
+          <div class="tot"><span>Diferencia</span><span class="num ${d === 0 ? '' : 'neg'}">${qs(d)}</span></div>
+        </div>
+        <button class="btn ghost" data-act="saldo-real" style="margin-top:12px">Actualizar saldo real</button>`;
+    }
+    h += '</div>';
+  }
+
+  // Ingresos por fuente
+  const pf = porFuente(ingresosDelMes());
+  h += `<div class="card"><div class="cat-head"><h2>Ingresos</h2><span class="amt num pos">${qs(b.ing)}</span></div>`;
+  if (!pf.length) h += '<p class="empty">Sin ingresos este mes. Toca + para agregar uno.</p>';
+  pf.forEach(([fid, x]) => {
+    h += `<div class="row"><div class="row-top"><span>${esc(fuenteNombre(fid))}</span><span class="num">${q(x.total)}</span></div>
+      <div class="bar"><span style="width:${x.total * 100 / b.ing}%;background:var(--pos)"></span></div></div>`;
+  });
+  h += '</div>';
+
+  // Gastos por categoría
+  h += `<div class="card"><div class="cat-head"><h2>Gastos</h2><span class="amt num">${q(b.gas)}</span></div>`;
+  db.cats.forEach(c => {
+    const v = t.cats[c.id].total;
+    h += `<div class="row"><div class="row-top"><span><span class="dot" style="background:${color(c.id)}"></span>${esc(c.nombre)}</span><span class="num">${q(v)}</span></div>
+      <div class="bar"><span style="width:${b.gas ? v * 100 / b.gas : 0}%;background:${color(c.id)}"></span></div></div>`;
+  });
+  h += '</div>';
+
+  // Últimos meses
+  let filas = '';
+  for (let i = 5; i >= 0; i--) {
+    let yy = anio, mm = mes - i;
+    while (mm < 0) { mm += 12; yy--; }
+    const bb = balance(yy, mm);
+    if (!bb.ing && !bb.gas) continue;
+    filas += `<span>${MESES[mm].slice(0, 3)}</span>
+      <span class="r num pos">${bb.ing ? '+' + q(bb.ing) : '—'}</span>
+      <span class="r num">${bb.gas ? q(-bb.gas) : '—'}</span>
+      <span class="r num">${bb.final === null ? '—' : q(bb.final)}</span>`;
+  }
+  if (filas) {
+    h += `<div class="card"><p class="label">Últimos meses</p><div class="hist">
+      <span class="h">Mes</span><span class="h r">Ingresos</span><span class="h r">Gastos</span><span class="h r">Saldo final</span>${filas}</div></div>`;
+  }
+
+  h += `<button class="btn" data-act="pdf">Descargar resumen PDF de ${MESES[mes]}</button>`;
+  $('#v-balance').innerHTML = h;
+}
+
 function renderMovs() {
-  let lista = gastosDelMes();
-  if (filtro !== 'todas') lista = lista.filter(g => g.cat === filtro);
-  lista.sort((a, b) => b.fecha.localeCompare(a.fecha) || b.creado - a.creado);
+  let gs = gastosDelMes(), is = ingresosDelMes();
+  if (filtro === 'ingresos') gs = [];
+  else if (filtro !== 'todas') { gs = gs.filter(g => g.cat === filtro); is = []; }
+  const items = gs.map(x => ({ t: 'g', x })).concat(is.map(x => ({ t: 'i', x })))
+    .sort((a, b) => b.x.fecha.localeCompare(a.x.fecha) || b.x.creado - a.x.creado);
 
   let h = '<div class="chips">' +
-    [['todas', 'Todas']].concat(db.cats.map(c => [c.id, c.nombre])).map(([id, n]) =>
+    [['todas', 'Todos']].concat(db.cats.map(c => [c.id, c.nombre]), [['ingresos', 'Ingresos']]).map(([id, n]) =>
       `<button class="chip ${filtro === id ? 'on' : ''}" data-filtro="${id}">${esc(n)}</button>`).join('') + '</div>';
 
-  if (!lista.length) {
-    h += '<div class="card"><p class="empty">No hay gastos en este mes. Toca + para agregar uno.</p></div>';
+  if (!items.length) {
+    const que = filtro === 'ingresos' ? 'ingresos' : filtro === 'todas' ? 'movimientos' : 'gastos';
+    h += `<div class="card"><p class="empty">No hay ${que} en este mes. Toca + para agregar.</p></div>`;
   } else {
-    const total = lista.reduce((a, g) => a + g.montoC, 0);
-    h += `<div class="day-h" style="text-transform:none"><span>${lista.length} ${lista.length === 1 ? 'gasto' : 'gastos'}</span><span class="num">Total ${q(total)}</span></div>`;
+    const tg = gs.reduce((a, g) => a + g.montoC, 0), ti = is.reduce((a, i) => a + i.montoC, 0);
+    const izq = [gs.length ? `${gs.length} ${gs.length === 1 ? 'gasto' : 'gastos'}` : '', is.length ? `${is.length} ${is.length === 1 ? 'ingreso' : 'ingresos'}` : ''].filter(Boolean).join(' · ');
+    const der = [is.length ? qs(ti) : '', gs.length ? q(-tg) : ''].filter(Boolean).join(' · ');
+    h += `<div class="day-h" style="text-transform:none"><span>${izq}</span><span class="num">${der}</span></div>`;
     let fechaActual = null;
-    lista.forEach(g => {
-      if (g.fecha !== fechaActual) {
+    items.forEach(({ t, x }) => {
+      if (x.fecha !== fechaActual) {
         if (fechaActual) h += '</div>';
-        fechaActual = g.fecha;
-        const d = new Date(g.fecha + 'T12:00:00');
-        const del = lista.filter(x => x.fecha === g.fecha).reduce((a, x) => a + x.montoC, 0);
-        h += `<div class="day-h"><span>${DIAS[d.getDay()]} ${d.getDate()} ${MESES[d.getMonth()].slice(0, 3)}</span><span class="num">${q(del)}</span></div><div class="list">`;
+        fechaActual = x.fecha;
+        const d = new Date(x.fecha + 'T12:00:00');
+        const dg = gs.filter(g => g.fecha === x.fecha).reduce((a, g) => a + g.montoC, 0);
+        const di = is.filter(i => i.fecha === x.fecha).reduce((a, i) => a + i.montoC, 0);
+        const tot = [di ? qs(di) : '', dg ? q(-dg) : ''].filter(Boolean).join(' · ');
+        h += `<div class="day-h"><span>${DIAS[d.getDay()]} ${d.getDate()} ${MESES[d.getMonth()].slice(0, 3)}</span><span class="num">${tot}</span></div><div class="list">`;
       }
-      const c = cat(g.cat);
-      h += `<button class="item" data-gasto="${g.id}">
-        <span class="sw" style="background:${color(g.cat)}"></span>
-        <span class="txt"><div class="t1">${esc(subNombre(c, g.sub))}</div>
-        <div class="t2">${esc(c ? c.nombre : '')}${g.nota ? ' · ' + esc(g.nota) : ''}</div></span>
-        <span class="amt num">${q(g.montoC)}</span></button>`;
+      if (t === 'g') {
+        const c = cat(x.cat);
+        h += `<button class="item" data-gasto="${x.id}">
+          <span class="sw" style="background:${color(x.cat)}"></span>
+          <span class="txt"><div class="t1">${esc(subNombre(c, x.sub))}</div>
+          <div class="t2">${esc(c ? c.nombre : '')}${x.nota ? ' · ' + esc(x.nota) : ''}</div></span>
+          <span class="amt num">${q(x.montoC)}</span></button>`;
+      } else {
+        h += `<button class="item" data-ingreso="${x.id}">
+          <span class="sw" style="background:var(--pos)"></span>
+          <span class="txt"><div class="t1">${esc(fuenteNombre(x.fuente))}</div>
+          <div class="t2">Ingreso${x.nota ? ' · ' + esc(x.nota) : ''}</div></span>
+          <span class="amt num pos">+${q(x.montoC)}</span></button>`;
+      }
     });
     h += '</div>';
   }
@@ -499,20 +687,36 @@ function renderAjustes() {
     h += `</ul><form class="add-sub" data-act="add-sub"><input type="text" placeholder="Nueva subcategoría" maxlength="40"><button>Agregar</button></form></div>`;
   });
 
+  // Fuentes de ingreso
+  h += `<div class="card"><div class="cat-head"><h2><span class="dot" style="background:var(--pos)"></span>Fuentes de ingreso</h2></div><ul class="subs">`;
+  db.fuentes.forEach(f => {
+    const n = db.ingresos.filter(i => i.fuente === f.id).length;
+    h += `<li data-fuente="${f.id}"><span class="n">${esc(f.nombre)} <span class="muted" style="font-size:13px">${n ? '· ' + n : ''}</span></span>
+      <button class="link" data-act="ren-fuente">Editar</button><button class="link del" data-act="del-fuente">Quitar</button></li>`;
+  });
+  h += `</ul><form class="add-sub" data-act="add-fuente"><input type="text" placeholder="Nueva fuente" maxlength="40"><button>Agregar</button></form></div>`;
+
+  // Saldo inicial
+  const si = db.saldoInicial;
+  h += `<div class="card"><div class="cat-head"><h2>Saldo inicial</h2></div>
+    <p class="p" style="margin-top:8px">Dinero total, en bancos y efectivo, que tenías al empezar a usar el balance. Cada mes siguiente parte del saldo final del anterior.</p>
+    <p class="p">${si ? '<b class="num" style="color:var(--ink)">' + q(si.montoC) + '</b> desde ' + nombreClave(si.mes) : 'Sin configurar. El balance empieza en cero.'}</p>
+    <button class="btn ghost" data-act="saldo-ini">${si ? 'Cambiar saldo inicial' : 'Configurar saldo inicial'}</button></div>`;
+
   const ult = db.ultimoRespaldo ? new Date(db.ultimoRespaldo) : null;
   h += `<div class="card">
     <div class="cat-head"><h2>Copia de seguridad</h2></div>
-    <p class="p" style="margin-top:8px">Tus gastos se guardan solo en este teléfono. Si borras la app o cambias de teléfono, se pierden. Guarda una copia en iCloud Drive o en Archivos cada cierto tiempo.</p>
+    <p class="p" style="margin-top:8px">Tus datos se guardan solo en este teléfono. Si borras la app o cambias de teléfono, se pierden. Guarda una copia en iCloud Drive o en Archivos cada cierto tiempo.</p>
     <p class="p">Última copia: ${ult ? ult.getDate() + ' ' + MESES[ult.getMonth()] + ' ' + ult.getFullYear() : 'nunca'}</p>
     <button class="btn" data-act="respaldo">Exportar copia de seguridad</button>
     <button class="btn ghost" data-act="importar">Restaurar desde una copia</button>
   </div>
-  <p class="p" style="text-align:center">${db.gastos.length} gastos guardados en total</p>`;
+  <p class="p" style="text-align:center">${db.gastos.length} gastos y ${db.ingresos.length} ingresos guardados en total</p>`;
   $('#v-ajustes').innerHTML = h;
 }
 
-/* ---------- Formulario de gasto ---------- */
-let editando = null, catSel = null;
+/* ---------- Formulario de gasto o ingreso ---------- */
+let editando = null, catSel = null, tipoSel = 'gasto';
 
 function ultimoUsado() {
   try { return JSON.parse(localStorage.getItem(KEY_LAST)) || {}; } catch (e) { return {}; }
@@ -525,21 +729,43 @@ function pintarCats() {
   $('#f-sub').innerHTML = c.subs.map(s => `<option value="${s.id}">${esc(s.nombre)}</option>`).join('');
 }
 
-function abrirGasto(g) {
-  editando = g || null;
-  const u = ultimoUsado();
-  catSel = g ? g.cat : (cat(u.cat) ? u.cat : db.cats[0].id);
-  pintarCats();
-  const subPref = g ? g.sub : u.sub;
-  if (subPref && cat(catSel).subs.some(s => s.id === subPref)) $('#f-sub').value = subPref;
-  $('#dlg-title').textContent = g ? 'Editar gasto' : 'Nuevo gasto';
-  $('#f-monto').value = g ? (g.montoC / 100).toFixed(2) : '';
-  $('#f-fecha').value = g ? g.fecha : hoyISO();
-  $('#f-nota').value = g ? (g.nota || '') : '';
-  $('#f-del').classList.toggle('hidden', !g);
-  $('#dlg').showModal();
-  if (!g) setTimeout(() => $('#f-monto').focus(), 60);
+function pintarTipo() {
+  const esG = tipoSel === 'gasto';
+  $('#f-tipo').innerHTML = [['gasto', 'Gasto', 'var(--ink)'], ['ingreso', 'Ingreso', 'var(--pos)']].map(([t, n, cc]) =>
+    `<button type="button" data-t="${t}" class="${t === tipoSel ? 'on' : ''}" style="--cc:${cc}">${n}</button>`).join('');
+  $('#f-tipo').classList.toggle('hidden', !!editando);
+  $('#f-wrap-cat').classList.toggle('hidden', !esG);
+  $('#f-wrap-sub').classList.toggle('hidden', !esG);
+  $('#f-wrap-fuente').classList.toggle('hidden', esG);
+  $('#dlg-title').textContent = (editando ? 'Editar ' : 'Nuevo ') + (esG ? 'gasto' : 'ingreso');
+  $('#f-del').textContent = 'Eliminar ' + (esG ? 'gasto' : 'ingreso');
+  $('#f-nota').placeholder = esG ? 'Ej. almuerzo con cliente' : 'Ej. pago de factura';
 }
+
+function abrirMov(tipo, item) {
+  editando = item || null;
+  tipoSel = tipo;
+  const u = ultimoUsado();
+  catSel = tipo === 'gasto' && item ? item.cat : (cat(u.cat) ? u.cat : db.cats[0].id);
+  pintarCats();
+  const subPref = tipo === 'gasto' && item ? item.sub : u.sub;
+  if (subPref && cat(catSel).subs.some(s => s.id === subPref)) $('#f-sub').value = subPref;
+  $('#f-fuente').innerHTML = db.fuentes.map(f => `<option value="${f.id}">${esc(f.nombre)}</option>`).join('');
+  const fPref = tipo === 'ingreso' && item ? item.fuente : u.fuente;
+  if (fPref && fuente(fPref)) $('#f-fuente').value = fPref;
+  pintarTipo();
+  $('#f-monto').value = item ? (item.montoC / 100).toFixed(2) : '';
+  $('#f-fecha').value = item ? item.fecha : hoyISO();
+  $('#f-nota').value = item ? (item.nota || '') : '';
+  $('#f-del').classList.toggle('hidden', !item);
+  $('#dlg').showModal();
+  if (!item) setTimeout(() => $('#f-monto').focus(), 60);
+}
+
+$('#f-tipo').addEventListener('click', e => {
+  const b = e.target.closest('button[data-t]'); if (!b) return;
+  tipoSel = b.dataset.t; pintarTipo();
+});
 
 $('#f-cats').addEventListener('click', e => {
   const b = e.target.closest('button[data-c]'); if (!b) return;
@@ -552,45 +778,119 @@ $('#f-gasto').addEventListener('submit', e => {
   if (!montoC) { toast('Escribe un monto válido'); $('#f-monto').focus(); return; }
   const fecha = $('#f-fecha').value;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { toast('Elige una fecha'); return; }
-  const datos = { montoC, fecha, cat: catSel, sub: $('#f-sub').value, nota: $('#f-nota').value.trim() };
-  if (editando) Object.assign(editando, datos);
-  else db.gastos.push(Object.assign({ id: uid(), creado: Date.now() }, datos));
+  const nota = $('#f-nota').value.trim();
+  const u = ultimoUsado();
+  const esG = tipoSel === 'gasto';
+  if (esG) {
+    const datos = { montoC, fecha, cat: catSel, sub: $('#f-sub').value, nota };
+    if (editando) Object.assign(editando, datos);
+    else db.gastos.push(Object.assign({ id: uid(), creado: Date.now() }, datos));
+    u.cat = datos.cat; u.sub = datos.sub;
+  } else {
+    const datos = { montoC, fecha, fuente: $('#f-fuente').value, nota };
+    if (editando) Object.assign(editando, datos);
+    else db.ingresos.push(Object.assign({ id: uid(), creado: Date.now() }, datos));
+    u.fuente = datos.fuente;
+  }
   guardar();
-  try { localStorage.setItem(KEY_LAST, JSON.stringify({ cat: datos.cat, sub: datos.sub })); } catch (err) {}
+  try { localStorage.setItem(KEY_LAST, JSON.stringify(u)); } catch (err) {}
   $('#dlg').close();
   const [y, m] = fecha.split('-').map(Number);
-  if (y !== anio || m - 1 !== mes) toast('Guardado en ' + MESES[m - 1] + ' ' + y);
-  else toast(editando ? 'Gasto actualizado' : 'Gasto guardado');
+  const que = esG ? 'Gasto' : 'Ingreso';
+  if (y !== anio || m - 1 !== mes) toast(que + ' guardado en ' + MESES[m - 1] + ' ' + y);
+  else toast(que + (editando ? ' actualizado' : ' guardado'));
   render();
 });
 
 $('#f-del').addEventListener('click', () => {
-  if (!editando || !confirm('¿Eliminar este gasto de ' + q(editando.montoC) + '?')) return;
-  db.gastos = db.gastos.filter(g => g.id !== editando.id);
-  guardar(); $('#dlg').close(); toast('Gasto eliminado'); render();
+  if (!editando) return;
+  const esG = tipoSel === 'gasto';
+  if (!confirm('¿Eliminar este ' + (esG ? 'gasto' : 'ingreso') + ' de ' + q(editando.montoC) + '?')) return;
+  if (esG) db.gastos = db.gastos.filter(g => g.id !== editando.id);
+  else db.ingresos = db.ingresos.filter(i => i.id !== editando.id);
+  guardar(); $('#dlg').close(); toast((esG ? 'Gasto' : 'Ingreso') + ' eliminado'); render();
 });
 
 $('#dlg-close').addEventListener('click', () => $('#dlg').close());
 $('#dlg').addEventListener('click', e => { if (e.target === $('#dlg')) $('#dlg').close(); });
 
+/* ---------- Ventana para saldos ---------- */
+function pedirMonto({ titulo, texto, valor, conMes, mesValor, permitirQuitar }) {
+  return new Promise(res => {
+    const f = $('#f-saldo'), dlg = $('#dlg-monto');
+    f.innerHTML = `<div class="sheet-h"><h3>${esc(titulo)}</h3><button type="button" class="icon-btn" data-x aria-label="Cerrar">×</button></div>
+      ${texto ? `<p class="p">${texto}</p>` : ''}
+      <input class="amount-in num" name="monto" inputmode="text" placeholder="Q0.00" value="${valor != null ? (valor / 100).toFixed(2) : ''}">
+      ${conMes ? `<div class="field"><label>Mes de inicio</label><input type="month" name="mes" value="${mesValor}"></div>` : ''}
+      <div class="actions"><button type="submit" class="btn">Guardar</button>${permitirQuitar ? '<button type="button" class="btn danger" data-quitar>Quitar</button>' : ''}</div>`;
+    let hecho = false;
+    const fin = (v) => { if (hecho) return; hecho = true; if (dlg.open) dlg.close(); res(v); };
+    f.onsubmit = e => {
+      e.preventDefault();
+      const m = leerSaldo(f.elements.monto.value);
+      if (m === null) { toast('Escribe un monto válido'); return; }
+      const mesV = conMes ? f.elements.mes.value : null;
+      if (conMes && !/^\d{4}-\d{2}$/.test(mesV)) { toast('Elige el mes'); return; }
+      fin({ montoC: m, mes: mesV });
+    };
+    f.onclick = e => {
+      if (e.target.closest('[data-x]')) fin(null);
+      else if (e.target.closest('[data-quitar]')) fin('quitar');
+    };
+    dlg.onclick = e => { if (e.target === dlg) fin(null); };
+    dlg.onclose = () => fin(null);
+    dlg.showModal();
+    setTimeout(() => f.elements.monto.focus(), 60);
+  });
+}
+
 /* ---------- Eventos generales ---------- */
-$('#fab').addEventListener('click', () => abrirGasto());
+$('#fab').addEventListener('click', () =>
+  abrirMov(vista === 'balance' || (vista === 'movs' && filtro === 'ingresos') ? 'ingreso' : 'gasto'));
 $('#prev').addEventListener('click', () => { if (--mes < 0) { mes = 11; anio--; } render(); });
 $('#next').addEventListener('click', () => { if (++mes > 11) { mes = 0; anio++; } render(); });
 document.querySelectorAll('.tabs button').forEach(b =>
   b.addEventListener('click', () => { vista = b.dataset.view; window.scrollTo(0, 0); render(); }));
 
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   const f = e.target.closest('[data-filtro]');
   if (f) { filtro = f.dataset.filtro; renderMovs(); return; }
   const g = e.target.closest('[data-gasto]');
-  if (g) { abrirGasto(db.gastos.find(x => x.id === g.dataset.gasto)); return; }
+  if (g) { abrirMov('gasto', db.gastos.find(x => x.id === g.dataset.gasto)); return; }
+  const ig = e.target.closest('[data-ingreso]');
+  if (ig) { abrirMov('ingreso', db.ingresos.find(x => x.id === ig.dataset.ingreso)); return; }
   const a = e.target.closest('button[data-act]');
   if (!a) return;
   const act = a.dataset.act;
   if (act === 'pdf') return abrirPDF();
   if (act === 'respaldo') return exportarRespaldo();
   if (act === 'importar') return $('#import-file').click();
+
+  if (act === 'saldo-ini') {
+    const si = db.saldoInicial;
+    const r = await pedirMonto({
+      titulo: 'Saldo inicial',
+      texto: 'Suma lo que tenías en bancos y efectivo al empezar el mes que indiques. Si tenías deudas por encima de eso, puedes escribir un número negativo, por ejemplo -500.',
+      valor: si ? si.montoC : null, conMes: true, mesValor: si ? si.mes : mesInicio(), permitirQuitar: !!si
+    });
+    if (r === 'quitar') {
+      if (confirm('¿Quitar el saldo inicial? El balance se calculará desde cero.')) { db.saldoInicial = null; guardar(); render(); }
+    } else if (r) {
+      db.saldoInicial = { montoC: r.montoC, mes: r.mes }; guardar(); render(); toast('Saldo inicial guardado');
+    }
+    return;
+  }
+  if (act === 'saldo-real') {
+    const k = claveMes(anio, mes), ex = db.saldosReales[k];
+    const r = await pedirMonto({
+      titulo: 'Saldo real de ' + MESES[mes],
+      texto: 'Suma lo que tienes en bancos y efectivo' + (esMesActual() ? ' hoy.' : ' al cierre de ' + MESES[mes] + '.'),
+      valor: ex ? ex.montoC : null, permitirQuitar: !!ex
+    });
+    if (r === 'quitar') { delete db.saldosReales[k]; guardar(); render(); }
+    else if (r) { db.saldosReales[k] = { montoC: r.montoC, fecha: hoyISO() }; guardar(); render(); toast('Saldo real guardado'); }
+    return;
+  }
 
   const cardCat = a.closest('[data-cat]');
   const c = cardCat && cat(cardCat.dataset.cat);
@@ -615,17 +915,40 @@ document.addEventListener('click', e => {
       c.subs = c.subs.filter(x => x.id !== s.id); guardar(); render();
     }
   }
+
+  const lf = a.closest('[data-fuente]');
+  const fu = lf && fuente(lf.dataset.fuente);
+  if (act === 'ren-fuente' && fu) {
+    const n = prompt('Nuevo nombre para la fuente de ingreso', fu.nombre);
+    if (n && n.trim()) { fu.nombre = n.trim(); guardar(); render(); }
+  }
+  if (act === 'del-fuente' && fu) {
+    const usados = db.ingresos.filter(x => x.fuente === fu.id).length;
+    if (db.fuentes.length === 1) { alert('Necesitas al menos una fuente de ingreso.'); return; }
+    if (usados) {
+      alert(`"${fu.nombre}" tiene ${usados} ${usados === 1 ? 'ingreso' : 'ingresos'}. Para quitarla, primero edita esos ingresos y cámbialos a otra fuente. Si solo quieres cambiarle el nombre, usa Editar.`);
+      return;
+    }
+    if (confirm(`¿Quitar la fuente "${fu.nombre}"?`)) {
+      db.fuentes = db.fuentes.filter(x => x.id !== fu.id); guardar(); render();
+    }
+  }
 });
 
 document.addEventListener('submit', e => {
-  const f = e.target.closest('form[data-act="add-sub"]');
+  const f = e.target.closest('form[data-act]');
   if (!f) return;
   e.preventDefault();
-  const c = cat(f.closest('[data-cat]').dataset.cat);
   const n = $('input', f).value.trim();
   if (!n) return;
-  if (c.subs.some(s => s.nombre.toLowerCase() === n.toLowerCase())) { toast('Esa subcategoría ya existe'); return; }
-  c.subs.push({ id: uid(), nombre: n }); guardar(); render(); toast('Subcategoría agregada');
+  if (f.dataset.act === 'add-sub') {
+    const c = cat(f.closest('[data-cat]').dataset.cat);
+    if (c.subs.some(s => s.nombre.toLowerCase() === n.toLowerCase())) { toast('Esa subcategoría ya existe'); return; }
+    c.subs.push({ id: uid(), nombre: n }); guardar(); render(); toast('Subcategoría agregada');
+  } else if (f.dataset.act === 'add-fuente') {
+    if (db.fuentes.some(x => x.nombre.toLowerCase() === n.toLowerCase())) { toast('Esa fuente ya existe'); return; }
+    db.fuentes.push({ id: uid(), nombre: n }); guardar(); render(); toast('Fuente agregada');
+  }
 });
 
 /* ---------- Compartir / descargar archivos ---------- */
@@ -657,7 +980,8 @@ $('#import-file').addEventListener('change', e => {
     let d;
     try { d = JSON.parse(r.result); } catch (err) { alert('El archivo no es una copia válida.'); return; }
     if (!valido(d)) { alert('El archivo no es una copia válida de esta app.'); return; }
-    if (!confirm(`La copia tiene ${d.gastos.length} gastos. Esto reemplaza los ${db.gastos.length} gastos que hay ahora en el teléfono. ¿Continuar?`)) return;
+    normalizar(d);
+    if (!confirm(`La copia tiene ${d.gastos.length} gastos y ${d.ingresos.length} ingresos. Esto reemplaza todo lo que hay ahora en el teléfono (${db.gastos.length} gastos y ${db.ingresos.length} ingresos). ¿Continuar?`)) return;
     db = d; guardar(); render(); toast('Copia restaurada');
   };
   r.readAsText(file);
@@ -670,17 +994,17 @@ function opcionesPDF() {
   try { o = JSON.parse(localStorage.getItem(KEY_PDF)) || {}; } catch (e) {}
   const ids = db.cats.map(c => c.id);
   const cats = Array.isArray(o.cats) ? o.cats.filter(id => ids.includes(id)) : [];
-  return { cats: cats.length ? cats : ids, cons: o.cons !== false, det: o.det !== false };
+  return { cats: cats.length ? cats : ids, cons: o.cons !== false, det: o.det !== false, bal: o.bal === true };
 }
 
 function abrirPDF() {
-  if (!gastosDelMes().length) { toast('No hay gastos en ' + MESES[mes]); return; }
+  if (!gastosDelMes().length && !ingresosDelMes().length) { toast('No hay movimientos en ' + MESES[mes]); return; }
   const o = opcionesPDF();
   const t = totales(gastosDelMes());
   $('#f-pdf').innerHTML = `
     <div class="sheet-h"><h3>Resumen de ${MESES[mes]}</h3>
       <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">×</button></div>
-    <div class="field"><label>Categorías que incluye</label>
+    <div class="field"><label>Categorías de gastos que incluye</label>
       ${db.cats.map(c => `<label class="opt"><input type="checkbox" name="cat" value="${c.id}" ${o.cats.includes(c.id) ? 'checked' : ''}>
         <span class="dot" style="background:${color(c.id)}"></span>${esc(c.nombre)}
         <span class="r num muted">${q(t.cats[c.id].total)}</span></label>`).join('')}
@@ -689,13 +1013,30 @@ function abrirPDF() {
       <label class="opt"><input type="checkbox" name="cons" ${o.cons ? 'checked' : ''}>
         <span>Consolidado<br><span class="muted" style="font-size:13px">Totales por categoría y subcategoría</span></span></label>
       <label class="opt"><input type="checkbox" name="det" ${o.det ? 'checked' : ''}>
-        <span>Detalle de gastos<br><span class="muted" style="font-size:13px">Cada gasto con fecha y nota, separado por categoría</span></span></label>
+        <span>Detalle<br><span class="muted" style="font-size:13px">Cada movimiento con fecha y nota, separado por categoría</span></span></label>
+      <label class="opt"><input type="checkbox" name="bal" ${o.bal ? 'checked' : ''}>
+        <span>Ingresos y balance<br><span class="muted" style="font-size:13px">Saldo inicial, ingresos, gastos, saldo final y cuadre</span></span></label>
     </div>
+    <p class="p hidden" id="bal-nota" style="margin-top:4px">Ingresos y balance solo se puede incluir con las tres categorías, porque el balance reúne todo tu dinero.</p>
     <p class="p" style="margin-top:12px">Si eliges una sola categoría, el PDF no muestra nada de las demás.</p>
     <div class="actions"><button type="submit" class="btn">Generar PDF</button></div>`;
+  syncBal();
   $('#dlg-pdf').showModal();
 }
 
+// "Ingresos y balance" solo se permite cuando están las tres categorías.
+function syncBal() {
+  const f = $('#f-pdf');
+  const bal = f.querySelector('input[name=bal]');
+  if (!bal) return;
+  const todas = [...f.querySelectorAll('input[name=cat]')].every(i => i.checked);
+  bal.disabled = !todas;
+  if (!todas) bal.checked = false;
+  bal.closest('.opt').classList.toggle('off', !todas);
+  $('#bal-nota').classList.toggle('hidden', todas);
+}
+
+$('#f-pdf').addEventListener('change', syncBal);
 $('#f-pdf').addEventListener('click', e => { if (e.target.closest('[data-cerrar]')) $('#dlg-pdf').close(); });
 $('#dlg-pdf').addEventListener('click', e => { if (e.target === $('#dlg-pdf')) $('#dlg-pdf').close(); });
 $('#f-pdf').addEventListener('submit', e => {
@@ -704,12 +1045,17 @@ $('#f-pdf').addEventListener('submit', e => {
   const o = {
     cats: [...f.querySelectorAll('input[name=cat]:checked')].map(i => i.value),
     cons: f.querySelector('input[name=cons]').checked,
-    det: f.querySelector('input[name=det]').checked
+    det: f.querySelector('input[name=det]').checked,
+    bal: f.querySelector('input[name=bal]').checked
   };
   if (!o.cats.length) { toast('Elige al menos una categoría'); return; }
-  if (!o.cons && !o.det) { toast('Elige consolidado, detalle o ambos'); return; }
+  if (!o.cons && !o.det && !o.bal) { toast('Elige al menos un contenido'); return; }
+  if (o.cats.length < db.cats.length) o.bal = false;
   const n = gastosDelMes().filter(g => o.cats.includes(g.cat)).length;
-  if (!n) { toast('Esas categorías no tienen gastos en ' + MESES[mes]); return; }
+  if (!n && !(o.bal && ingresosDelMes().length)) {
+    toast(o.bal ? 'No hay movimientos en ' + MESES[mes] : 'Esas categorías no tienen gastos en ' + MESES[mes]);
+    return;
+  }
   try { localStorage.setItem(KEY_PDF, JSON.stringify(o)); } catch (err) {}
   $('#dlg-pdf').close();
   generarPDF(o);
@@ -721,6 +1067,7 @@ function generarPDF(o) {
   const sel = db.cats.filter(c => o.cats.includes(c.id));
   const lista = gastosDelMes().filter(g => o.cats.includes(g.cat))
     .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.creado - b.creado);
+  const ingresos = ingresosDelMes().sort((a, b) => a.fecha.localeCompare(b.fecha) || a.creado - b.creado);
   const t = totales(lista);
   const una = sel.length === 1;
   const todas = sel.length === db.cats.length;
@@ -729,14 +1076,15 @@ function generarPDF(o) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = 612, H = 792, M = 50, R = W - M;
-  const gris = [110, 113, 109], tinta = [29, 33, 31], linea = [220, 217, 210];
+  const gris = [110, 113, 109], tinta = [29, 33, 31], linea = [220, 217, 210], verde = [35, 133, 79], rojo = [192, 57, 43];
   let y = M;
 
   const txt = (s, x, yy, op = {}) => doc.text(String(s), x, yy, op);
   const font = (estilo, tam, col = tinta) => { doc.setFont('helvetica', estilo); doc.setFontSize(tam); doc.setTextColor(...col); };
   const hr = (yy, col = linea, w = 0.6) => { doc.setDrawColor(...col); doc.setLineWidth(w); doc.line(M, yy, R, yy); };
   const espacio = (n) => { if (y + n > H - 60) { doc.addPage(); y = M; return true; } return false; };
-  const marca = (c, yy) => { doc.setFillColor(...CAT_PDF[idx(c.id)]); doc.rect(M, yy - 10, 4, 14, 'F'); };
+  const marcaCol = (col, yy) => { doc.setFillColor(...col); doc.rect(M, yy - 10, 4, 14, 'F'); };
+  const marca = (c, yy) => marcaCol(CAT_PDF[idx(c.id)], yy);
   const corta = (s, w) => {
     if (doc.getTextWidth(s) <= w) return s;
     while (s.length && doc.getTextWidth(s + '...') > w) s = s.slice(0, -1);
@@ -744,17 +1092,67 @@ function generarPDF(o) {
   };
 
   // Encabezado
-  font('bold', 20); txt(una ? 'Gastos ' + sel[0].nombre : 'Resumen de gastos', M, y + 8);
+  const titulo = o.bal ? 'Resumen financiero' : una ? 'Gastos ' + sel[0].nombre : 'Resumen de gastos';
+  font('bold', 20); txt(titulo, M, y + 8);
   font('normal', 13, gris); txt(nombreMes(anio, mes) + (!una && !todas ? ' · ' + nombres : ''), M, y + 28);
   const hoy = new Date();
   font('normal', 9, gris);
   txt('Generado el ' + hoy.getDate() + '/' + (hoy.getMonth() + 1) + '/' + hoy.getFullYear(), R, y + 8, { align: 'right' });
   y += 48; hr(y, tinta, 1); y += 26;
 
+  if (o.bal) {
+    const b = balance();
+    font('bold', 12); txt('Balance del mes', M, y); y += 10; hr(y); y += 18;
+    const fila = (et, val, bold = false, col = tinta) => {
+      font(bold ? 'bold' : 'normal', bold ? 12 : 11); txt(et, M, y);
+      font(bold ? 'bold' : 'normal', bold ? 12 : 11, col); txt(val, R, y, { align: 'right' });
+      y += 9; hr(y, bold ? tinta : linea, bold ? 1 : 0.6); y += 18;
+    };
+    fila('Saldo al 1 de ' + MESES[mes], b.apertura === null ? 'No aplica' : q(b.apertura));
+    fila('Ingresos', qs(b.ing), false, verde);
+    fila('Gastos', q(-b.gas));
+    fila('Saldo final esperado', b.final === null ? 'No aplica' : q(b.final), true);
+    if (b.apertura === null) {
+      font('normal', 9, gris); txt('El saldo acumulado empieza en ' + nombreClave(b.ini) + '.', M, y - 6); y += 10;
+    }
+    if (b.real !== null && b.final !== null) {
+      y += 6;
+      font('bold', 12); txt('Cuadre con saldo real', M, y); y += 10; hr(y); y += 18;
+      fila('Saldo real', q(b.real));
+      fila('Saldo según registros', q(b.final));
+      const d = b.dif;
+      fila(d === 0 ? 'Diferencia (cuadra)' : d < 0 ? 'Diferencia (faltante)' : 'Diferencia (sobrante)', qs(d), true, d === 0 ? tinta : rojo);
+    }
+    y += 14;
+
+    // Ingresos por fuente
+    const pf = porFuente(ingresos);
+    espacio(60 + pf.length * 20);
+    font('bold', 12); txt('Ingresos por fuente', M, y); y += 20;
+    font('bold', 9, gris);
+    txt('FUENTE', M, y); txt('INGRESOS', 360, y, { align: 'right' }); txt('TOTAL', 480, y, { align: 'right' }); txt('%', R, y, { align: 'right' });
+    y += 8; hr(y); y += 18;
+    if (!pf.length) { font('normal', 10, gris); txt('Sin ingresos este mes', M, y); y += 22; }
+    pf.forEach(([fid, x]) => {
+      espacio(20);
+      font('normal', 11);
+      txt(fuenteNombre(fid), M, y); txt(x.n, 360, y, { align: 'right' }); txt(q(x.total), 480, y, { align: 'right' });
+      txt(pct(x.total, b.ing).toFixed(1) + '%', R, y, { align: 'right' });
+      y += 10; hr(y); y += 18;
+    });
+    if (pf.length) {
+      font('bold', 12);
+      txt('Total de ingresos', M, y); txt(ingresos.length, 360, y, { align: 'right' }); txt(q(b.ing), 480, y, { align: 'right' }); txt('100%', R, y, { align: 'right' });
+      y += 8; hr(y, tinta, 1); y += 18;
+    }
+    y += 18;
+  }
+
   if (o.cons) {
     // Consolidado por categoría (solo tiene sentido con más de una)
     if (!una) {
-      font('bold', 12); txt('Consolidado por categoría', M, y); y += 20;
+      espacio(60 + sel.length * 28);
+      font('bold', 12); txt(o.bal ? 'Gastos por categoría' : 'Consolidado por categoría', M, y); y += 20;
       font('bold', 9, gris);
       txt('CATEGORÍA', M, y); txt('GASTOS', 360, y, { align: 'right' }); txt('TOTAL', 480, y, { align: 'right' });
       txt(todas ? '% DEL MES' : '% DEL TOTAL', R, y, { align: 'right' });
@@ -768,11 +1166,12 @@ function generarPDF(o) {
         y += 10; hr(y); y += 18;
       });
       font('bold', 12);
-      txt(todas ? 'Total del mes' : 'Total', M, y); txt(t.n, 360, y, { align: 'right' }); txt(q(t.total), 480, y, { align: 'right' }); txt('100%', R, y, { align: 'right' });
+      txt(o.bal ? 'Total de gastos' : todas ? 'Total del mes' : 'Total', M, y); txt(t.n, 360, y, { align: 'right' }); txt(q(t.total), 480, y, { align: 'right' }); txt('100%', R, y, { align: 'right' });
       y += 8; hr(y, tinta, 1); y += 36;
     }
 
     // Desglose por subcategoría
+    espacio(80);
     font('bold', 12); txt('Desglose por subcategoría', M, y); y += 22;
     sel.forEach(c => {
       const tc = t.cats[c.id];
@@ -798,40 +1197,43 @@ function generarPDF(o) {
   }
 
   if (o.det) {
-    // Detalle, una sección por categoría
-    if (o.cons) { y += 10; espacio(110); }
-    font('bold', 12); txt('Detalle de gastos', M, y); y += 24;
+    // Detalle, una sección por categoría (y una de ingresos si se incluye el balance)
+    if (o.cons || o.bal) { y += 10; espacio(110); }
+    font('bold', 12); txt(o.bal ? 'Detalle de movimientos' : 'Detalle de gastos', M, y); y += 24;
     const cols = { fecha: M + 12, sub: M + 62, nota: M + 190 };
-    const encabezado = () => {
+    const encabezado = (col2) => {
       font('bold', 8, gris);
-      txt('FECHA', cols.fecha, y); txt('SUBCATEGORÍA', cols.sub, y); txt('NOTA', cols.nota, y); txt('MONTO', R, y, { align: 'right' });
+      txt('FECHA', cols.fecha, y); txt(col2, cols.sub, y); txt('NOTA', cols.nota, y); txt('MONTO', R, y, { align: 'right' });
       y += 7; hr(y); y += 14;
     };
-    const titulo = (c, cont) => {
-      marca(c, y);
-      font('bold', 11); txt(c.nombre + (cont ? ' (continuación)' : ''), M + 12, y); y += 18;
-      encabezado();
-    };
-    sel.forEach(c => {
-      const gs = lista.filter(g => g.cat === c.id);
+    const seccion = (nombre, colMarca, col2, movs, nombreFila, total) => {
+      const titulo = (cont) => {
+        marcaCol(colMarca, y);
+        font('bold', 11); txt(nombre + (cont ? ' (continuación)' : ''), M + 12, y); y += 18;
+        encabezado(col2);
+      };
       espacio(80);
-      titulo(c, false);
-      if (!gs.length) { font('normal', 10, gris); txt('Sin gastos este mes', cols.fecha, y); y += 28; return; }
-      gs.forEach(g => {
-        if (espacio(16)) titulo(c, true);
+      titulo(false);
+      if (!movs.length) { font('normal', 10, gris); txt('Sin movimientos este mes', cols.fecha, y); y += 28; return; }
+      movs.forEach(g => {
+        if (espacio(16)) titulo(true);
         font('normal', 9);
         txt(g.fecha.slice(8, 10) + '/' + g.fecha.slice(5, 7), cols.fecha, y);
-        txt(corta(subNombre(c, g.sub), 120), cols.sub, y);
+        txt(corta(nombreFila(g), 120), cols.sub, y);
         font('normal', 9, gris); txt(corta(g.nota || '', R - 80 - cols.nota), cols.nota, y);
         font('normal', 9); txt(q(g.montoC), R, y, { align: 'right' });
         y += 15;
       });
       espacio(24);
       y += 1; hr(y, tinta, 0.8); y += 14;
-      font('bold', 10); txt('Total ' + c.nombre, cols.fecha, y); txt(q(t.cats[c.id].total), R, y, { align: 'right' });
+      font('bold', 10); txt('Total ' + nombre, cols.fecha, y); txt(q(total), R, y, { align: 'right' });
       y += 32;
-    });
-    if (!una && !o.cons) {
+    };
+    sel.forEach(c => seccion(c.nombre, CAT_PDF[idx(c.id)], 'SUBCATEGORÍA',
+      lista.filter(g => g.cat === c.id), g => subNombre(c, g.sub), t.cats[c.id].total));
+    if (o.bal) seccion('Ingresos', verde, 'FUENTE', ingresos, i => fuenteNombre(i.fuente),
+      ingresos.reduce((a, i) => a + i.montoC, 0));
+    if (!una && !o.cons && !o.bal) {
       espacio(30);
       hr(y - 12, tinta, 1);
       font('bold', 12); txt(todas ? 'Total del mes' : 'Total', M, y + 4); txt(q(t.total), R, y + 4, { align: 'right' });
@@ -843,14 +1245,15 @@ function generarPDF(o) {
   for (let i = 1; i <= n; i++) {
     doc.setPage(i);
     font('normal', 8, gris);
-    txt('Resumen de gastos · ' + nombreMes(anio, mes) + (todas ? '' : ' · ' + nombres), M, H - 30);
+    txt(titulo + ' · ' + nombreMes(anio, mes) + (todas ? '' : ' · ' + nombres), M, H - 30);
     txt('Página ' + i + ' de ' + n, R, H - 30, { align: 'right' });
   }
 
   const slug = (x) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '');
+  const partes = [o.cons && 'consolidado', o.det && 'detalle', o.bal && 'balance'].filter(Boolean);
   const nombre = 'Gastos-' + claveMes(anio, mes) +
     (todas ? '' : '-' + sel.map(c => slug(c.nombre)).join('-')) +
-    (o.cons && o.det ? '' : o.cons ? '-consolidado' : '-detalle') + '.pdf';
+    (o.cons && o.det && !o.bal ? '' : '-' + partes.join('-')) + '.pdf';
   entregarArchivo(doc.output('blob'), nombre);
 }
 

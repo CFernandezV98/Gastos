@@ -536,7 +536,7 @@ function renderInicio() {
 
   if (t.total > 0) h += renderDias(movs);
 
-  h += `<button class="btn" data-act="pdf">Descargar resumen PDF de ${MESES[mes]}</button>`;
+  h += `<button class="btn" data-act="pdf">Descargar resumen de ${MESES[mes]}</button>`;
   $('#v-inicio').innerHTML = h;
 }
 
@@ -650,7 +650,7 @@ function renderBalance() {
       <span class="h">Mes</span><span class="h r">Ingresos</span><span class="h r">Gastos</span><span class="h r">Saldo final</span>${filas}</div></div>`;
   }
 
-  h += `<button class="btn" data-act="pdf">Descargar resumen PDF de ${MESES[mes]}</button>`;
+  h += `<button class="btn" data-act="pdf">Descargar resumen de ${MESES[mes]}</button>`;
   $('#v-balance').innerHTML = h;
 }
 
@@ -1082,20 +1082,37 @@ function opcionesPDF() {
   // Si se agregaron categorías después, se incluyen cuando antes estaban todas marcadas.
   let cats = Array.isArray(o.cats) ? o.cats.filter(id => ids.includes(id)) : [];
   if (o.todas) cats = ids;
-  return { cats: cats.length ? cats : ids, cons: o.cons !== false, det: o.det !== false, bal: o.bal === true };
+  return { cats: cats.length ? cats : ids, cons: o.cons !== false, det: o.det !== false, bal: o.bal === true,
+    fmt: o.fmt === 'csv' ? 'csv' : 'pdf', per: o.per === 'todo' ? 'todo' : 'mes', ing: o.ing !== false };
 }
 
 function abrirPDF() {
-  if (!gastosDelMes().length && !ingresosDelMes().length) { toast('No hay movimientos en ' + MESES[mes]); return; }
+  if (!db.gastos.length && !db.ingresos.length) { toast('Todavía no hay movimientos registrados'); return; }
   const o = opcionesPDF();
   const t = totales(gastosDelMes());
-  $('#f-pdf').innerHTML = cabecera('Resumen de ' + MESES[mes]) + `
+  const total = db.gastos.length + db.ingresos.length;
+  const primero = db.gastos.concat(db.ingresos).map(x => x.fecha).sort()[0];
+  const fp = primero.slice(8, 10) + '/' + primero.slice(5, 7) + '/' + primero.slice(0, 4);
+  $('#f-pdf').innerHTML = cabecera('Descargar') + `
+    <div class="seg" id="fmt">
+      <button type="button" data-f="pdf" class="${o.fmt === 'pdf' ? 'on' : ''}" style="--cc:var(--ink)">Resumen PDF</button>
+      <button type="button" data-f="csv" class="${o.fmt === 'csv' ? 'on' : ''}" style="--cc:var(--ink)">Excel (CSV)</button>
+    </div>
     <div class="field"><label>Categorías de gastos que incluye</label>
       ${db.cats.map(c => `<label class="opt"><input type="checkbox" name="cat" value="${c.id}" ${o.cats.includes(c.id) ? 'checked' : ''}>
         <span class="dot" style="background:${color(c.id)}"></span>${esc(c.nombre)}
         <span class="r num muted">${q(t.cats[c.id].total)}</span></label>`).join('')}
     </div>
-    <div class="field"><label>Contenido</label>
+    <div class="field" data-solo="csv"><label>Periodo</label>
+      <label class="opt"><input type="radio" name="per" value="mes" ${o.per === 'mes' ? 'checked' : ''}><span>Solo ${nombreMes(anio, mes)}</span></label>
+      <label class="opt"><input type="radio" name="per" value="todo" ${o.per === 'todo' ? 'checked' : ''}>
+        <span>Todos los meses<br><span class="muted" style="font-size:13px">${total} movimientos desde el ${fp}</span></span></label>
+    </div>
+    <div class="field" data-solo="csv"><label>Movimientos</label>
+      <label class="opt"><input type="checkbox" name="ing" ${o.ing ? 'checked' : ''}>
+        <span>Incluir ingresos<br><span class="muted" style="font-size:13px">Además de los gastos de las categorías marcadas</span></span></label>
+    </div>
+    <div class="field" data-solo="pdf"><label>Contenido</label>
       <label class="opt"><input type="checkbox" name="cons" ${o.cons ? 'checked' : ''}>
         <span>Consolidado<br><span class="muted" style="font-size:13px">Totales por categoría y subcategoría</span></span></label>
       <label class="opt"><input type="checkbox" name="det" ${o.det ? 'checked' : ''}>
@@ -1103,27 +1120,43 @@ function abrirPDF() {
       <label class="opt"><input type="checkbox" name="bal" ${o.bal ? 'checked' : ''}>
         <span>Ingresos y balance<br><span class="muted" style="font-size:13px">Saldo inicial, ingresos, gastos, saldo final y cuadre</span></span></label>
     </div>
-    <p class="p hidden" id="bal-nota" style="margin-top:4px">Ingresos y balance solo se puede incluir con todas las categorías de gastos, porque el balance reúne todo tu dinero.</p>
-    <p class="p" style="margin-top:12px">Si eliges una sola categoría, el PDF no muestra nada de las demás.</p>
-    <div class="actions"><button type="submit" class="btn">Generar PDF</button></div>`;
+    <p class="p hidden" id="bal-nota" style="margin-top:4px">Los ingresos solo se pueden incluir con todas las categorías de gastos, porque reúnen todo tu dinero.</p>
+    <p class="p" style="margin-top:12px">Si eliges una sola categoría, el archivo no muestra nada de las demás.</p>
+    <div class="actions"><button type="submit" class="btn" id="pdf-ok"></button></div>`;
+  formato = o.fmt;
+  pintarFormato();
   syncBal();
   $('#dlg-pdf').showModal();
 }
 
-// "Ingresos y balance" solo se permite cuando están todas las categorías de gastos.
+let formato = 'pdf';
+function pintarFormato() {
+  const f = $('#f-pdf');
+  f.querySelectorAll('#fmt button').forEach(b => b.classList.toggle('on', b.dataset.f === formato));
+  f.querySelectorAll('[data-solo]').forEach(el => el.classList.toggle('hidden', el.dataset.solo !== formato));
+  $('#pdf-ok').textContent = formato === 'pdf' ? 'Generar PDF' : 'Descargar CSV';
+}
+
+// Los ingresos (balance en el PDF, ingresos en el CSV) solo se permiten con todas las categorías de gastos.
 function syncBal() {
   const f = $('#f-pdf');
-  const bal = f.querySelector('input[name=bal]');
-  if (!bal) return;
   const todas = [...f.querySelectorAll('input[name=cat]')].every(i => i.checked);
-  bal.disabled = !todas;
-  if (!todas) bal.checked = false;
-  bal.closest('.opt').classList.toggle('off', !todas);
+  ['bal', 'ing'].forEach(nm => {
+    const x = f.querySelector('input[name=' + nm + ']');
+    if (!x) return;
+    x.disabled = !todas;
+    if (!todas) x.checked = false;
+    x.closest('.opt').classList.toggle('off', !todas);
+  });
   $('#bal-nota').classList.toggle('hidden', todas);
 }
 
 $('#f-pdf').addEventListener('change', syncBal);
-$('#f-pdf').addEventListener('click', e => { if (e.target.closest('[data-x]')) $('#dlg-pdf').close(); });
+$('#f-pdf').addEventListener('click', e => {
+  if (e.target.closest('[data-x]')) { $('#dlg-pdf').close(); return; }
+  const b = e.target.closest('#fmt button[data-f]');
+  if (b) { formato = b.dataset.f; pintarFormato(); }
+});
 $('#dlg-pdf').addEventListener('click', e => { if (e.target === $('#dlg-pdf')) $('#dlg-pdf').close(); });
 $('#f-pdf').addEventListener('submit', e => {
   e.preventDefault();
@@ -1132,9 +1165,21 @@ $('#f-pdf').addEventListener('submit', e => {
     cats: [...f.querySelectorAll('input[name=cat]:checked')].map(i => i.value),
     cons: f.querySelector('input[name=cons]').checked,
     det: f.querySelector('input[name=det]').checked,
-    bal: f.querySelector('input[name=bal]').checked
+    bal: f.querySelector('input[name=bal]').checked,
+    fmt: formato,
+    per: f.querySelector('input[name=per]:checked').value,
+    ing: f.querySelector('input[name=ing]').checked
   };
   if (!o.cats.length) { toast('Elige al menos una categoría'); return; }
+  o.todas = o.cats.length === db.cats.length;
+  if (o.fmt === 'csv') {
+    if (!o.todas) o.ing = f.querySelector('input[name=ing]').checked = false;
+    if (generarCSV(o)) {
+      try { localStorage.setItem(KEY_PDF, JSON.stringify(Object.assign(opcionesPDF(), o))); } catch (err) {}
+      $('#dlg-pdf').close();
+    }
+    return;
+  }
   if (!o.cons && !o.det && !o.bal) { toast('Elige al menos un contenido'); return; }
   o.todas = o.cats.length === db.cats.length;
   if (!o.todas) o.bal = false;
@@ -1143,10 +1188,40 @@ $('#f-pdf').addEventListener('submit', e => {
     toast(o.bal ? 'No hay movimientos en ' + MESES[mes] : 'Esas categorías no tienen gastos en ' + MESES[mes]);
     return;
   }
-  try { localStorage.setItem(KEY_PDF, JSON.stringify(o)); } catch (err) {}
+  try { localStorage.setItem(KEY_PDF, JSON.stringify(Object.assign(opcionesPDF(), o))); } catch (err) {}
   $('#dlg-pdf').close();
   generarPDF(o);
 });
+
+/* ---------- Archivo CSV para Excel ---------- */
+function generarCSV(o) {
+  const k = claveMes(anio, mes);
+  const enPeriodo = (x) => o.per === 'todo' || x.fecha.startsWith(k);
+  const filas = db.gastos.filter(g => o.cats.includes(g.cat) && enPeriodo(g)).map(x => ['Gasto', x]);
+  if (o.ing && o.todas) db.ingresos.filter(enPeriodo).forEach(x => filas.push(['Ingreso', x]));
+  if (!filas.length) { toast('No hay movimientos para descargar con esas opciones'); return false; }
+  filas.sort((a, b) => a[1].fecha.localeCompare(b[1].fecha) || a[1].creado - b[1].creado);
+
+  // Comillas cuando hace falta, y un apóstrofo delante de textos que Excel tomaría como fórmula.
+  const celda = (v) => {
+    let s = String(v);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lineas = [['Fecha', 'Tipo', 'Categoría', 'Subcategoría', 'Detalle', 'Monto']];
+  filas.forEach(([tipo, x]) => {
+    const c = cat(x.cat);
+    lineas.push([x.fecha, tipo, c ? c.nombre : '', subNombre(c, x.sub), x.nota || '', (x.montoC / 100).toFixed(2)]);
+  });
+  // El BOM inicial hace que Excel lea bien las tildes y la ñ.
+  const csv = '\ufeff' + lineas.map(l => l.map(celda).join(',')).join('\r\n') + '\r\n';
+  const slug = (x) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '');
+  const sel = db.cats.filter(c => o.cats.includes(c.id));
+  const nombre = 'Movimientos-' + (o.per === 'todo' ? 'todos-al-' + hoyISO() : k) +
+    (o.todas ? '' : '-' + sel.map(c => slug(c.nombre)).join('-')) + '.csv';
+  entregarArchivo(new Blob([csv], { type: 'text/csv' }), nombre);
+  return true;
+}
 
 /* ---------- Resumen PDF: documento ---------- */
 function generarPDF(o) {

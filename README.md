@@ -12,6 +12,7 @@ Aplicación para llevar gastos personales desde el iPhone. Funciona sin servidor
 - Resumen mensual con el total del mes, la comparación con el mes anterior, el reparto entre categorías, el desglose por subcategoría y una gráfica de gasto por día.
 - Lista de movimientos del mes agrupada por día, con filtro por categoría. Cada gasto se puede editar o eliminar.
 - Reporte PDF del mes. Se elige qué categorías incluir y si lleva el consolidado, el detalle, los ingresos y el balance. Cuando se elige una sola categoría, el PDF no muestra información de las demás; por eso los ingresos y el balance solo se incluyen cuando el reporte tiene todas las categorías de gastos.
+- Archivo CSV para abrir en Excel con el detalle de cada movimiento: fecha, tipo (gasto o ingreso), categoría, subcategoría, detalle y monto. Se puede descargar solo el mes o todos los meses.
 - Copia de seguridad para exportar y restaurar todos los datos.
 
 ## Privacidad
